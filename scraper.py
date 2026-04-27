@@ -2,6 +2,9 @@ import re
 from urllib.parse import urlparse, urldefrag, urljoin
 from bs4 import BeautifulSoup
 
+ALLOWED_DOMAINS = re.compile(
+    r"^(.+\.)?(ics|cs|informatics|stat)\.uci\.edu$"
+)
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -48,7 +51,7 @@ def is_valid(url):
             return False
 
         # get domain
-        if parsed.netloc not in set([".ics.uci.edu/", ".cs.uci.edu/", ".informatics.uci.edu/", ".stat.uci.edu/"]):
+        if not parsed.hostname or not ALLOWED_DOMAINS.match(parsed.hostname):
             return False
         
         return not re.match(
