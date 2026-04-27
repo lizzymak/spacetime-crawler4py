@@ -47,7 +47,7 @@ class Frontier(object):
             f"Found {tbd_count} urls to be downloaded from {total_count} "
             f"total urls discovered.")
 
-    def get_tbd_url(self):
+    def get_tbd_url(self):  # need to change this depending on how we implement frontier
         try:
             return self.to_be_downloaded.pop()
         except IndexError:

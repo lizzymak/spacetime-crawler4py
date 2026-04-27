@@ -22,12 +22,18 @@ def extract_next_links(url, resp):
     if resp.status != 200 or not resp.raw_response:
         return []
 
+    content = resp.raw_response.content
+    if not content or len(content) < 100:
+        return []
+
     # get links html and turn it into a soup object used for searching
-    soup = BeautifulSoup(resp.raw_response.content, "html.parser")
+    soup = BeautifulSoup(content, "html.parser")
+
     # search the soup object for links (which are a tags)
     links = []
     # find all the links which have 'a' as tag
-    for a in soup.find_all('a', href=True):
+    # set max links for a page to be 50 for now:
+    for a in soup.find_all('a', href=True)[:50]:
         link = a['href']
         # relative link
         full_link = urljoin(resp.url, link)
@@ -48,7 +54,17 @@ def is_valid(url):
             return False
 
         # get domain
-        if parsed.netloc not in set([".ics.uci.edu/", ".cs.uci.edu/", ".informatics.uci.edu/", ".stat.uci.edu/"]):
+        host = parsed.netloc.lower()
+
+        if not (
+                host == "ics.uci.edu" or host.endswith(".ics.uci.edu") or
+                host == "cs.uci.edu" or host.endswith(".cs.uci.edu") or
+                host == "informatics.uci.edu" or host.endswith(".informatics.uci.edu") or
+                host == "stat.uci.edu" or host.endswith(".stat.uci.edu")
+        ):
+            return False
+
+        if re.search(r"calendar", url.lower()):  # should add more here, this is just a test
             return False
         
         return not re.match(

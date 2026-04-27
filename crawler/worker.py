@@ -19,7 +19,10 @@ class Worker(Thread):
         
     def run(self):
         while True:
-            tbd_url = self.frontier.get_tbd_url()
+            tbd_url = self.frontier.get_tbd_url()  # this might need to change!
+            # any logging should be done here
+            # analyze log data after deployment, detect patterns in the log and
+            # improve upon how we find information with the crawler
             if not tbd_url:
                 self.logger.info("Frontier is empty. Stopping Crawler.")
                 break
