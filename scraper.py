@@ -1,10 +1,33 @@
 import re
 from urllib.parse import urlparse, urldefrag, urljoin
 from bs4 import BeautifulSoup
+from collections import defaultdict
 
 ALLOWED_DOMAINS = re.compile(
     r"^(.+\.)?(ics|cs|informatics|stat)\.uci\.edu$"
 )
+
+domain_visits = defaultdict(int)
+MAX_VISITS = 50
+
+def is_trap(parsed_url):
+    domain = parsed_url.hostname
+    if domain_visits[domain] >= MAX_VISITS:
+        return True
+    
+    segments = [s for s in parsed_url.path.split('/') if s]
+    if len(segments) != len(set(segments)):
+        seen = set()
+        for seg in segments:
+            if seg in seen:
+                return True
+            seen.add(seg)
+    
+    # check for long query strings (calendar/filter traps)
+    if len(parsed_url.query) > 200:
+        return True
+
+    return False
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -24,6 +47,11 @@ def extract_next_links(url, resp):
     # only do stuff if response is okay
     if resp.status != 200 or not resp.raw_response:
         return []
+
+    # if there isn't much on the page, skip
+    # if llen(resp.raw_response) - len(soup.get_text()) 
+    domain = urlparse(url).hostname
+    domain_visits[domain] += 1
 
     # get links html and turn it into a soup object used for searching
     soup = BeautifulSoup(resp.raw_response.content, "html.parser")
@@ -53,6 +81,10 @@ def is_valid(url):
         # get domain
         if not parsed.hostname or not ALLOWED_DOMAINS.match(parsed.hostname):
             return False
+
+        if is_trap(parsed):
+            return False
+        
         
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
