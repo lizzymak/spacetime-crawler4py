@@ -7,6 +7,7 @@ def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
+
 def extract_next_links(url, resp):
     # Implementation required.
     # url: the URL that was used to get the page
@@ -18,55 +19,106 @@ def extract_next_links(url, resp):
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
 
-    # only do stuff if response is okay
-    if resp.status != 200 or not resp.raw_response:
+    if resp is None or resp.status != 200 or resp.raw_response is None:
         return []
 
     content = resp.raw_response.content
+
     if not content or len(content) < 100:
         return []
 
-    # get links html and turn it into a soup object used for searching
-    soup = BeautifulSoup(content, "html.parser")
+    try:
+        soup = BeautifulSoup(content, "html.parser")
+    except Exception:
+        return []
 
-    # search the soup object for links (which are a tags)
     links = []
-    # find all the links which have 'a' as tag
-    # set max links for a page to be 50 for now:
-    for a in soup.find_all('a', href=True)[:50]:
-        link = a['href']
-        # relative link
-        full_link = urljoin(resp.url, link)
-        # defrag link
-        defrag_url, _ = urldefrag(full_link)
-        # append to our list of links
-        links.append(defrag_url)
+    base_url = resp.url if getattr(resp, "url", None) else url
+
+    for a in soup.find_all("a", href=True)[:50]:  # only takes the first 50 for now! 
+        link = a.get("href")
+
+        if not link:
+            continue
+
+        link = link.strip()
+
+        if not link:
+            continue
+
+        if link.startswith("#"):
+            continue
+
+        if link.lower().startswith(("mailto:", "javascript:", "tel:")):
+            continue
+
+        try:
+            full_link = urljoin(base_url, link)
+            defrag_url, _ = urldefrag(full_link)
+        except Exception:
+            continue
+
+        if defrag_url:
+            links.append(defrag_url)
 
     return list(set(links))
 
+
 def is_valid(url):
-    # Decide whether to crawl this url or not. 
+    # Decide whether to crawl this url or not.
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
+
+    trap_patterns = [
+        r"calendar",
+        r"/events/",
+        r"tribe-bar-date",
+        r"eventdisplay",
+        r"ical=1",
+        r"outlook-ical",
+        r"action=history",
+        r"action=diff",
+        r"version=",
+        r"/timeline",
+        r"\?c=[mnds];o=[ad]",
+        r"&c=[mnds];o=[ad]",
+        r"auth",
+        r"login",
+        r"logout",
+        r"register",
+        r"signin",
+        r"signup",
+        r"password",
+        r"oauth",
+        r"datasets\?search=",
+        r"keywords=",
+        r"orderby=",
+        r"sort=",
+        r"order=",
+    ]
+
     try:
         parsed = urlparse(url)
+
         if parsed.scheme not in set(["http", "https"]):
             return False
 
-        # get domain
         host = parsed.netloc.lower()
 
         if not (
-                host == "ics.uci.edu" or host.endswith(".ics.uci.edu") or
-                host == "cs.uci.edu" or host.endswith(".cs.uci.edu") or
-                host == "informatics.uci.edu" or host.endswith(".informatics.uci.edu") or
-                host == "stat.uci.edu" or host.endswith(".stat.uci.edu")
+            host == "ics.uci.edu" or host.endswith(".ics.uci.edu") or
+            host == "cs.uci.edu" or host.endswith(".cs.uci.edu") or
+            host == "informatics.uci.edu" or host.endswith(".informatics.uci.edu") or
+            host == "stat.uci.edu" or host.endswith(".stat.uci.edu")
         ):
             return False
 
-        if re.search(r"calendar", url.lower()):  # should add more here, this is just a test
-            return False
-        
+        lower_url = url.lower()
+
+        for pattern in trap_patterns:
+            if re.search(pattern, lower_url):
+                return False
+
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -75,8 +127,9 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$",
+            parsed.path.lower()
+        )
 
-    except TypeError:
-        print ("TypeError for ", parsed)
-        raise
+    except Exception:
+        return False
