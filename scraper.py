@@ -1,9 +1,71 @@
 import re
+import atexit
+import threading
 from urllib.parse import urlparse, urldefrag, urljoin
 from bs4 import BeautifulSoup
 
 
+# analytics for the report
+analytics_lock = threading.Lock()
+unique_pages = set()
+word_frequencies = {}
+subdomain_counts = {}
+longest_page_url = ""
+longest_page_word_count = 0
+STOP_WORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
+    "any", "are", "as", "at", "be", "because", "been", "before", "being", "below",
+    "between", "both", "but", "by", "can", "cannot", "could", "did", "do", "does",
+    "doing", "down", "during", "each", "few", "for", "from", "further", "had",
+    "has", "have", "having", "he", "her", "here", "hers", "herself", "him",
+    "himself", "his", "how", "i", "if", "in", "into", "is", "it", "its",
+    "itself", "just", "me", "more", "most", "my", "myself", "no", "nor", "not",
+    "now", "of", "off", "on", "once", "only", "or", "other", "our", "ours",
+    "ourselves", "out", "over", "own", "same", "she", "should", "so", "some",
+    "such", "than", "that", "the", "their", "theirs", "them", "themselves",
+    "then", "there", "these", "they", "this", "those", "through", "to", "too",
+    "under", "until", "up", "very", "was", "we", "were", "what", "when",
+    "where", "which", "while", "who", "whom", "why", "with", "would", "you",
+    "your", "yours", "yourself", "yourselves"
+}
+
+
+# tokenize (code logic from Assignment 1)
+def tokenize_text(text):
+    current_token = ""
+
+    for char in text:
+        if char.isascii() and char.isalnum():
+            current_token += char.lower()
+        else:
+            if current_token != "":
+                yield current_token
+                current_token = ""
+
+    if current_token != "":
+        yield current_token
+
+
+def add_tokens_to_frequencies(tokens):
+    for token in tokens:
+        if token in STOP_WORDS:
+            continue
+
+        if token.isdigit():  # don't want to count numbers
+            continue
+
+        if len(token) <= 1:
+            continue
+
+        if token in word_frequencies:
+            word_frequencies[token] += 1
+        else:
+            word_frequencies[token] = 1
+
+
 def scraper(url, resp):
+    update_analytics(url, resp)
+
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
@@ -19,11 +81,10 @@ def extract_next_links(url, resp):
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
 
+    # filter out malformed responses and potentially not useful HTML
     if resp is None or resp.status != 200 or resp.raw_response is None:
         return []
-
     content = resp.raw_response.content
-
     if not content or len(content) < 100:
         return []
 
@@ -35,7 +96,7 @@ def extract_next_links(url, resp):
     links = []
     base_url = resp.url if getattr(resp, "url", None) else url
 
-    for a in soup.find_all("a", href=True)[:50]:  # only takes the first 50 for now! 
+    for a in soup.find_all("a", href=True):
         link = a.get("href")
 
         if not link:
@@ -133,3 +194,91 @@ def is_valid(url):
 
     except Exception:
         return False
+
+
+def update_analytics(url, resp):
+    """
+    Gather statistics when crawling and updates global counters along the way
+    """
+    global longest_page_url
+    global longest_page_word_count
+
+    if resp is None or resp.status != 200 or resp.raw_response is None:
+        return
+
+    content = resp.raw_response.content
+
+    if not content:
+        return
+
+    page_url = resp.url if getattr(resp, "url", None) else url
+
+    try:
+        page_url, _ = urldefrag(page_url)
+    except Exception:
+        return
+
+    if not is_valid(page_url):
+        return
+
+    try:
+        soup = BeautifulSoup(content, "html.parser")
+    except Exception:
+        return
+
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+
+    text = soup.get_text(separator=" ")
+    tokens = list(tokenize_text(text))
+
+    parsed = urlparse(page_url)
+    subdomain = parsed.netloc.lower()
+
+    with analytics_lock:
+        if page_url in unique_pages:
+            return
+
+        unique_pages.add(page_url)
+        if subdomain in subdomain_counts:
+            subdomain_counts[subdomain] += 1
+        else:
+            subdomain_counts[subdomain] = 1
+
+        if len(tokens) > longest_page_word_count:
+            longest_page_word_count = len(tokens)
+            longest_page_url = page_url
+
+        add_tokens_to_frequencies(tokens)
+
+
+def write_report():
+    try:
+        sorted_words = sorted(
+            word_frequencies.items(),
+            key=lambda item: (-item[1], item[0])
+        )
+
+        with open("report.txt", "w", encoding="utf-8") as file:
+            file.write("Report\n")
+
+            file.write("1. Number of unique pages found:\n")
+            file.write(str(len(unique_pages)) + "\n\n")
+
+            file.write("2. Longest page by word count:\n")
+            file.write(longest_page_url + "\n")
+            file.write(str(longest_page_word_count) + " words\n\n")
+
+            file.write("3. Top 50 most common words:\n")
+            for token, count in sorted_words[:50]:
+                file.write(token + ", " + str(count) + "\n")
+
+            file.write("\n4. Subdomains found in uci.edu:\n")
+            for subdomain in sorted(subdomain_counts.keys()):
+                file.write(subdomain + ", " + str(subdomain_counts[subdomain]) + "\n")
+
+    except Exception as e:
+        print("Error writing report:", e)
+
+
+atexit.register(write_report)
