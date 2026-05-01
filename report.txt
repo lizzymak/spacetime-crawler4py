@@ -1,0 +1,65 @@
+Report
+1. Number of unique pages found:
+1215
+
+2. Longest page by word count:
+http://swiki.ics.uci.edu/doku.php/services:slurm?rev=1775858506
+8219 words
+
+3. Top 50 most common words:
+support, 7696
+wiki, 4589
+tools, 3615
+media, 2692
+sitemap, 2495
+security, 2011
+software, 1999
+services, 1968
+page, 1947
+files, 1934
+hardware, 1926
+group, 1863
+virtual, 1860
+accounts, 1855
+environments, 1854
+ics, 1790
+manager, 1696
+backups, 1556
+revisions, 1467
+projects, 1461
+user, 1336
+png, 1315
+old, 1276
+log, 1271
+instructional, 1257
+changes, 1253
+linux, 1239
+backlinks, 1229
+labs, 1228
+recent, 1225
+windows, 1215
+site, 1211
+commands, 1176
+webapps, 1164
+requesttracker, 1161
+namespaces, 1134
+show, 1016
+imaging, 998
+search, 916
+icsdc, 871
+storage, 828
+power, 785
+shutdown, 771
+notice, 770
+rev, 770
+upload, 763
+history, 749
+faqs, 728
+google, 728
+maintenance, 713
+
+4. Subdomains found in uci.edu:
+purchase.ics.uci.edu, 1
+rt5.ics.uci.edu, 1
+swiki.ics.uci.edu, 504
+wiki.ics.uci.edu, 709

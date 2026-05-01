@@ -1,7 +1,7 @@
 import re
 import atexit
 import threading
-from urllib.parse import urlparse, urldefrag, urljoin
+from urllib.parse import urlparse, urldefrag, urljoin, parse_qs
 from bs4 import BeautifulSoup
 
 
@@ -166,6 +166,15 @@ def is_valid(url):
 
         host = parsed.netloc.lower()
 
+        query = parse_qs(parsed.query.lower())
+
+        if host == "wiki.ics.uci.edu":  # dumb fix for now just to sanity check if crawler works as expected
+            if query.get("do") == ["media"]:
+                return False
+
+            if "tab_files" in query or "tab_details" in query or "image" in query:
+                return False
+
         if not (
             host == "ics.uci.edu" or host.endswith(".ics.uci.edu") or
             host == "cs.uci.edu" or host.endswith(".cs.uci.edu") or
@@ -253,6 +262,10 @@ def update_analytics(url, resp):
 
 
 def write_report():
+    """
+    report.txt will be written in the current working directory
+    probably this: ~/cs121/spacetime-crawler4py/report.txt
+    """
     try:
         sorted_words = sorted(
             word_frequencies.items(),
@@ -282,3 +295,4 @@ def write_report():
 
 
 atexit.register(write_report)
+# the report only gets created when the crawler exits normally
