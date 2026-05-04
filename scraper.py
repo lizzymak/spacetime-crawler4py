@@ -1,108 +1,129 @@
 import re
+import threading
+import atexit
 from urllib.parse import urlparse, urldefrag, urljoin
 from bs4 import BeautifulSoup
-from collections import defaultdict
+from collections import defaultdict, Counter
 import urllib.robotparser
-from collections import Counter
 import string
+
+from text_processing import tokenize_text, filter_tokens
+from similarity import stable_hash_64, compute_simhash, hamming_distance
 
 ALLOWED_DOMAINS = re.compile(
     r"^(.+\.)?(ics|cs|informatics|stat)\.uci\.edu$"
 )
 
-STOP_WORDS = set("""a about above after again against all am an and any are aren't as at be 
-because been before being below between both but by can't cannot could couldn't did didn't do 
-does doesn't doing don't down during each few for from further had hadn't has hasn't have haven't 
-having he he'd he'll he's her here here's hers herself him himself his how how's i i'd i'll i'm 
-i've if in into is isn't it it's its itself let's me more most mustn't my myself no nor not of 
-off on once only or other ought our ours ourselves out over own same shan't she she'd she'll she's 
-should shouldn't so some such than that that's the their theirs them themselves then there there's 
-these they they'd they'll they're they've this those through to too under until up very was wasn't 
-we we'd we'll we're we've were weren't what what's when when's where where's which while who who's 
-whom why why's with won't would wouldn't you you'd you'll you're you've your yours yourself 
-yourselves""".split())
-
-word_counts = Counter()  
-
-domain_visits = defaultdict(int)
-MAX_VISITS = 500
-
-max_words = {"url": "", "count": 0}
+analytics_lock = threading.Lock()
+domain_lock = threading.Lock()
+robots_lock = threading.Lock()
 unique_pages = set()
-longest_page_words = 0
+word_frequencies = {}
+subdomain_counts = defaultdict(set)
+longest_page_url = ""
+longest_page_word_count = 0
+
+exact_page_hashes = set()
+near_page_simhashes = []
+exact_duplicate_count = 0
+near_duplicate_count = 0
 
 
 seen_simhashes = set()
 SIMHASH_THRESHOLD = 3  
+SIMHASH_NEAR_DUP_THRESHOLD = 5
+MIN_FILTERED_WORDS = 50
+MAX_CONTENT_BYTES = 1_000_000
+MAX_VISITS = 500
 
-subdomain_counts = defaultdict(set)
-
+domain_visits = defaultdict(int)
 robot_parsers = {}
 
 
 trap_patterns = [
-    r"tribe-bar-date",
-    r"eventdisplay",
-    r"ical=1",
-    r"outlook-ical",
-    r"action=history",
-    r"action=diff",
+    # Slide / presentation traps
+    r".*/~[a-zA-Z0-9]+/.*(sld|tsld)[0-9]+\.htm.*",
+    r".*/~[a-zA-Z0-9]+/(presentations|slides)/.*",
+
+    # DokuWiki traps
+    r".*/doku\.php/projects:maint-.*",
+    r"doku\.php.*[?&](do|rev|image)=.*",
+
+    # Old course archives
+    r".*/~[a-zA-Z0-9]+/(courses|teaching|class|assignments|homeworks|grad/courses)/(19|20[0-2])[0-9].*",
+
+    # Publication / technical silos
+    r".*/~[a-zA-Z0-9]+/publications/[ar][0-9]+[A-Z]?\.html.*",
+    r".*/~[a-zA-Z0-9]+/(papers|softwares|benchmarks|bibs|junkyard)/.*",
+
+    # Calendar / event loops
+    r".*[?&](tribe[^&]*|tribe-bar-date|eventdisplay|ical=1|outlook-ical|eventdate=).*",
+    r".*/events/.*(month|list|tag|page/|today|week).*",
+    r".*/events/20[0-2][0-9]-[0-9]{2}.*",
+    r"isg\.ics\.uci\.edu/events/",
+    r"calendar",
+    r"/events/",
     r"/timeline",
+
+    # GitLab / mailman sinks
+    r"^https?://gitlab\.ics\.uci\.edu/.*(/-/|/tags|/branches|/commits|/starrers|/forks|/activity|/users).*",
+    r"^https?://mailman\.ics\.uci\.edu/.*",
+
+    # Photo galleries / image browsing
+    r".*/gallery/.*[?&](page|image|photo)=.*",
+    r".*/photos/.*[0-9]{3,}.*",
+    r".*/images?/.*[0-9]{3,}.*",
+
+    # Pagination
+    r".*/page/[0-9]{2,}.*",
+    r".*[?&]page=[0-9]{2,}.*",
+
+    # Date archives
+    r".*/[0-9]{4}/[0-9]{2}/[0-9]{2}.*",
+    r".*/archive/[0-9]{4}.*",
+
+    # Search / filter / sorting
+    r".*[?&](filter|sort|order|search|query|keywords|orderby)=.*",
     r"\?c=[mnds];o=[ad]",
     r"&c=[mnds];o=[ad]",
-    r"[?&]auth=",
-    r"[?&]login=",
-    r"[?&]logout=",
-    r"[?&]signin=",
-    r"[?&]signup=",
-    r"[?&]password=",
-    r"[?&]oauth=",
+
+    # Auth / session tracking
+    r".*[?&](session|sid|token|key|phpsessid|auth|login|logout|signin|signup|password|oauth)=.*",
+    r"auth",
+    r"login",
+    r"logout",
+    r"register",
+    r"signin",
+    r"signup",
+    r"password",
+    r"oauth",
+
+    # PDF viewers / document display
+    r".*/pdfviewer.*",
+    r".*[?&](view|viewer|display|tab_details|tab_files)=.*",
+
+    # Printer / share versions
+    r".*[?&](print|share|format)=.*",
+
+    # Comment / reply chains
+    r".*[?&](replytocom|comment)=.*",
+
+    # Version control / diff pages
+    r".*/diff/.*",
+    r".*/compare/.*",
+    r"action=(history|diff)",
+    r"version=",
+
+    # Datasets / chemical pages
     r"datasets\?search=",
-    r"[?&]keywords=",
-    r"[?&]orderby=",
-    r"[?&]sort=",
-    r"[?&]order=",
-    r"[?&]do=media",
-    r"[?&]tab_details=",
-    r"[?&]tab_files=",
-    r"[?&]image=",
-    r"doku\.php.*\?.*image=",
+    r"/datasets?",
+    r"(smiles|molecule|chemical|compound)",
 ]
 
-def tokenize(text: str):
-    tokens = []
-    valid_chars = set(string.ascii_letters + string.digits)
-    token = []
-    for char in text:
-        if char.isalnum() and char in valid_chars:
-            token.append(char.casefold())
-        else:
-            if token:
-                tokens.append("".join(token))
-                token.clear()
-    if token:
-        tokens.append("".join(token))
-    return tokens
 
+def add_tokens_to_frequencies(tokens):
+    word_frequencies.update(tokens)
 
-def get_simhash(page_content):
-    words = page_content.lower().split()
-    v = [0] * 64
-    for word in words:
-        h = hash(word)
-        for i in range(64):
-            if h & (1 << i):
-                v[i] += 1
-            else:
-                v[i] -= 1
-    simhash = 0
-    for i in range(64):
-        if v[i] > 0:
-            simhash |= (1 << i)
-    return simhash
-
-def hamming_distance(h1, h2):
-    return bin(h1 ^ h2).count('1')
 
 def is_similar_to_seen(simhash):
     for seen in seen_simhashes:
@@ -111,152 +132,134 @@ def is_similar_to_seen(simhash):
     return False
 
 
-def can_fetch(parsed_url, raw_url, user_agent):
+def can_fetch(parsed_url, raw_url):
     base = f"{parsed_url.scheme}://{parsed_url.hostname}"
 
-    if base not in robot_parsers:
-        rp = urllib.robotparser.RobotFileParser()
-        rp.set_url(f"{base}/robots.txt")
-        try:
-            rp.read()
-        except Exception:
-            robot_parsers[base] = None
-            return True
-        robot_parsers[base] = rp
+    with robots_lock:
+        if base not in robot_parsers:
+            rp = urllib.robotparser.RobotFileParser()
+            rp.set_url(f"{base}/robots.txt")
+            try:
+                rp.read()
+                robot_parsers[base] = rp
 
-    rp = robot_parsers[base]
+            except Exception:
+                robot_parsers[base] = None
+
+        rp = robot_parsers[base]
     if rp is None:
         return True
-    return rp.can_fetch(user_agent, raw_url)
+    return rp.can_fetch("*", raw_url)
 
 
-def is_trap(parsed_url):
+def is_trap(parsed_url) -> bool:
     domain = parsed_url.hostname
-    if domain_visits[domain] >= MAX_VISITS:
+ 
+    with domain_lock:
+        if domain_visits[domain] >= MAX_VISITS:
+            return True
+    
+    # repeated path segments (e.g. /a/b/a/b/…)
+    segments = [s for s in parsed_url.path.split("/") if s]
+
+    if len(segments) > 15:
         return True
 
-    segments = [s for s in parsed_url.path.split('/') if s]
     seen = set()
     for seg in segments:
         if seg in seen:
             return True
         seen.add(seg)
-
+        
+ 
+    # excessively long query string
     if len(parsed_url.query) > 200:
         return True
-
+    
+    if re.search(r'[?&](date|page|start|offset|from|to)=', parsed_url.query):
+        param_values = parsed_url.query.split('&')
+        if any(re.search(r'\d{4}-\d{2}-\d{2}', v) for v in param_values):
+            return True
+ 
     return False
 
 def scraper(url, resp):
-    defrag_url, _ = urldefrag(url)
-    unique_pages.add(defrag_url)
-
-    parsed = urlparse(defrag_url)
-    if parsed.hostname and parsed.hostname.endswith(".ics.uci.edu"):
-        subdomain_counts[parsed.hostname].add(defrag_url)
-
-
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
 
 def extract_next_links(url, resp):
-    if resp is None or resp.status != 200 or resp.raw_response is None:
+    # url: the URL that was used to get the page
+    # resp.url: the actual url of the page
+    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
+    # resp.error: when status is not 200, you can check the error here, if needed.
+    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
+    #         resp.raw_response.url: the url, again
+    #         resp.raw_response.content: the content of the page!
+    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+ 
+    # update_analytics is the gatekeeper — if it returns False, skip this page
+    if not update_analytics(url, resp):
         return []
-
-    content = resp.raw_response.content
-
-    # nothing in the URL
-    if not content or len(content) < 100:
-        return []
-    
-    # too big of a file (5MB)
-    if len(content) > 5 * 1024 * 1024:  
-        return []
-
-    # the actual content
-    try:
-        soup = BeautifulSoup(content, "html.parser")
-    except Exception:
-        return []
-
-    # high text content check
-    text = soup.get_text(strip=True)
-    if not text or len(text) < 200: # or len(text) / len(content) < 0.1:
-        return []
-
-    # dead URL check (200 but no real content)
-    if not text.strip():
-        return []
-
-    tokens = tokenize(text)
-    filtered = [t for t in tokens if t not in STOP_WORDS]
-    word_counts.update(filtered)
-
-    # similar page check
-    page_simhash = get_simhash(text)
-    if is_similar_to_seen(page_simhash):
-        return []
-    seen_simhashes.add(page_simhash)
-
-    # word count tracking
-    word_count = len(text.split())
-    if word_count > max_words["count"]:
-        max_words["count"] = word_count
-        max_words["url"] = url
-
-    # only count pages that actually have content
-    domain_visits[urlparse(url).hostname] += 1
-
-    links = []
+ 
+    # increment domain visit counter only for pages that passed all checks
+    with domain_lock:
+        domain_visits[urlparse(url).hostname] += 1
+ 
+    content  = resp.raw_response.content
+    soup     = BeautifulSoup(content, "html.parser")
     base_url = resp.url if getattr(resp, "url", None) else url
-
-    for a in soup.find_all('a', href=True):
+    links    = []
+ 
+    for a in soup.find_all("a", href=True):
         link = a.get("href")
-
+ 
         if not link:
             continue
-
+ 
         link = link.strip()
-
+ 
         if not link or link.startswith("#"):
             continue
-
+ 
         if link.lower().startswith(("mailto:", "javascript:", "tel:")):
             continue
-
+ 
         try:
-            full_link = urljoin(base_url, link)
+            full_link     = urljoin(base_url, link)
             defrag_url, _ = urldefrag(full_link)
         except Exception:
             continue
-
+ 
         if defrag_url:
             links.append(defrag_url)
-
+ 
     return list(set(links))
 
-
-def is_valid(url):
+def is_valid(url) -> bool:
+    # Decide whether to crawl this url or not.
+    # If you decide to crawl it, return True; otherwise return False.
+    # There are already some conditions that return False.
     try:
         parsed = urlparse(url)
+ 
         if parsed.scheme not in {"http", "https"}:
             return False
-
+ 
         if not parsed.hostname or not ALLOWED_DOMAINS.match(parsed.hostname):
             return False
-
+ 
         if is_trap(parsed):
             return False
-
-        if not can_fetch(parsed, url, "*"): 
+ 
+        if not can_fetch(parsed, url):
             return False
-
+ 
         lower_url = url.lower()
         for pattern in trap_patterns:
             if re.search(pattern, lower_url):
                 return False
-
+ 
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -265,27 +268,137 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
-
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$",
+            parsed.path.lower()
+        )
+ 
     except TypeError:
         print("TypeError for ", parsed)
         raise
+    except Exception:
+        return False
 
-def get_report():
-    with open("report.txt", "w") as f:
-        # Q1
-        f.write(f"1. Unique pages: {len(unique_pages)}\n\n")
-        
-        # Q2
-        f.write(f"2. Longest page: {max_words['url']} with {max_words['count']} words\n\n")
-        
-        # Q3
-        f.write("3. Top 50 words:\n")
-        for word, count in word_counts.most_common(50):
-            f.write(f"  {word}: {count}\n")
-        f.write("\n")
-        
-        # Q4
-        f.write("4. Subdomains in ics.uci.edu:\n")
-        for subdomain in sorted(subdomain_counts.keys()):
-            f.write(f"  {subdomain}, {len(subdomain_counts[subdomain])}\n")
+def update_analytics(url, resp) -> bool:
+    """
+    Gather statistics when crawling and update global counters.
+    Returns True  if the page is valid, unique, and not a duplicate
+                  (i.e. the caller should extract outgoing links).
+    Returns False if the page is invalid, low-quality, already seen,
+                  exact duplicate, or near-duplicate.
+    """
+    global longest_page_url, longest_page_word_count
+    global exact_duplicate_count, near_duplicate_count
+ 
+    if resp is None or resp.status != 200 or resp.raw_response is None:
+        return False
+ 
+    content = resp.raw_response.content
+    if not content:
+        return False
+ 
+    if len(content) > MAX_CONTENT_BYTES:
+        return False
+ 
+    page_url = resp.url if getattr(resp, "url", None) else url
+    try:
+        page_url, _ = urldefrag(page_url)
+    except Exception:
+        return False
+ 
+    if not is_valid(page_url):
+        return False
+ 
+    try:
+        soup = BeautifulSoup(content, "html.parser")
+    except Exception:
+        return False
+ 
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+ 
+    text = soup.get_text(separator=" ")
+    tokens = list(tokenize_text(text))
+    filtered_tokens = filter_tokens(tokens)
+ 
+    # low-information page filter
+    if len(filtered_tokens) < MIN_FILTERED_WORDS:
+        return False
+ 
+    exact_hash    = stable_hash_64(" ".join(filtered_tokens))
+    simhash_value = compute_simhash(filtered_tokens)
+ 
+    parsed    = urlparse(page_url)
+    subdomain = parsed.hostname.lower() if parsed.hostname else ""
+ 
+    with analytics_lock:
+        if page_url in unique_pages:
+            return False
+ 
+        if exact_hash in exact_page_hashes:
+            exact_duplicate_count += 1
+            return False
+ 
+        for old_simhash in near_page_simhashes:
+            if hamming_distance(simhash_value, old_simhash) <= SIMHASH_NEAR_DUP_THRESHOLD:
+                near_duplicate_count += 1
+                return False
+ 
+        unique_pages.add(page_url)
+        exact_page_hashes.add(exact_hash)
+        near_page_simhashes.append(simhash_value)
+ 
+        # subdomain tracking — store unique URLs, keyed by hostname
+        if subdomain.endswith(".ics.uci.edu"):
+            subdomain_counts[subdomain].add(page_url)
+ 
+        if len(filtered_tokens) > longest_page_word_count:
+            longest_page_word_count = len(filtered_tokens)
+            longest_page_url = page_url
+ 
+        add_tokens_to_frequencies(filtered_tokens)
+ 
+    return True
+
+def write_report():
+    """
+    report.txt will be written in the current working directory.
+    probably this: ~/cs121/spacetime-crawler4py/report.txt
+    """
+    try:
+        with analytics_lock:
+            with open("report.txt", "w", encoding="utf-8") as file:
+                file.write("Report\n\n")
+ 
+                file.write("1. Number of unique pages found:\n")
+                file.write(str(len(unique_pages)) + "\n\n")
+ 
+                file.write("2. Longest page by word count:\n")
+                file.write(longest_page_url + "\n")
+                file.write(str(longest_page_word_count) + " words\n\n")
+ 
+                file.write("3. Top 50 most common words:\n")
+                for token, count in word_frequencies.most_common(50):
+                    file.write(token + ", " + str(count) + "\n")
+ 
+                file.write("\n4. Subdomains found in ics.uci.edu:\n")
+                for subdomain in sorted(subdomain_counts.keys()):
+                    file.write(
+                        subdomain + ", " + str(len(subdomain_counts[subdomain])) + "\n"
+                    )
+ 
+                file.write("\n5. Duplicate detection:\n")
+                file.write(
+                    "Exact duplicate pages skipped: "
+                    + str(exact_duplicate_count) + "\n"
+                )
+                file.write(
+                    "Near duplicate pages skipped: "
+                    + str(near_duplicate_count) + "\n"
+                )
+ 
+    except Exception as e:
+        print("Error writing report:", e)
+ 
+ 
+atexit.register(write_report)
+# the report only gets created when the crawler exits normally
