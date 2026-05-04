@@ -65,9 +65,8 @@ class Frontier(object):
         with self.lock:
             if urlhash not in self.save:
                 self.save[urlhash] = (url, False)
+                self.save.sync()
                 self.to_be_downloaded.append(url)
-                if len(self.to_be_downloaded) % 50 == 0:
-                    self.save.sync()
     
     def mark_url_complete(self, url):
         url = normalize(url)
@@ -102,5 +101,4 @@ class Frontier(object):
                     self.domain_last_access_time[domain] = current_time
                     return
 
-                sleep_for = wait
-            time.sleep(sleep_for)
+            time.sleep(wait_time)
