@@ -145,7 +145,6 @@ trouble_paths = [
     "/raw/",
     "/src/",
     "/pix/",
-    "/wiki/",
 ]
 
 # Broad trap query parameters (file-2 specific)
@@ -188,34 +187,21 @@ def can_fetch(parsed_url, raw_url):
 # Trap Helper
 
 def is_trap(parsed_url) -> bool:
-    domain = parsed_url.hostname
-
-    # per-domain visit cap (file-1)
-    with domain_lock:
-        if domain_visits[domain] >= MAX_VISITS:
-            return True
-
-    # repeated path segments (file-1)
-    segments = [s for s in parsed_url.path.split("/") if s]
-
-    if len(segments) > 15:
+    if not parsed_url.hostname:
         return True
-
-    seen = set()
-    for seg in segments:
-        if seg in seen:
+    # per-domain visit cap
+    with domain_lock:
+        if domain_visits[parsed_url.hostname] >= MAX_VISITS:
             return True
-        seen.add(seg)
 
-    # excessively long query string (file-1)
+    # date values in query string (path-based date patterns don't cover this)
+    if re.search(r"[?&](date|page|start|offset|from|to)=", parsed_url.query):
+        if any(re.search(r"\d{4}-\d{2}-\d{2}", v) for v in parsed_url.query.split("&")):
+            return True
+
+    # excessively long query not caught by trap_params
     if len(parsed_url.query) > 200:
         return True
-
-    # date parameters in query string (file-1)
-    if re.search(r"[?&](date|page|start|offset|from|to)=", parsed_url.query):
-        if any(re.search(r"\d{4}-\d{2}-\d{2}", v)
-               for v in parsed_url.query.split("&")):
-            return True
 
     return False
 
@@ -303,8 +289,8 @@ def is_valid(url) -> bool:
             r"|epub|dll|cnf|tgz|sha1|thmx|mso|arff|rtf|jar|csv"
             r"|rm|smil|wmv|swf|wma|zip|rar|gz"
             r"|patch|diff|git|ipynb|emx|mpg|scm|ss|rkt|nb|nbp|bib"
-            r"|odp|db|war|dtd|sql|img|ics|ical|xml|json)$",
-            r"|txt|log|cfg|conf",
+            r"|odp|db|war|dtd|sql|img|ics|ical|xml|json"
+            r"|txt|log|cfg|conf)$",
             path_low
         ):
             return False
@@ -418,9 +404,9 @@ def update_analytics(url, resp) -> bool:
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
 
-    text             = soup.get_text(separator=" ")
-    tokens           = list(tokenize_text(text))
-    filtered_tokens  = filter_tokens(tokens)
+    text = soup.get_text(separator=" ")
+    tokens = list(tokenize_text(text))
+    filtered_tokens = list(filter_tokens(tokens))
 
     if len(filtered_tokens) < MIN_FILTERED_WORDS:
         return False
