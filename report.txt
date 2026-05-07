@@ -1,0 +1,133 @@
+Report
+
+1. Number of unique pages found:
+1588
+
+2. Longest page by word count:
+https://cml.ics.uci.edu/category/aiml
+15859 words
+
+3. Top 50 most common words:
+data, 5213
+research, 5036
+learning, 4137
+uci, 4033
+university, 3873
+computer, 3779
+science, 3616
+ics, 3535
+systems, 3486
+information, 3267
+will, 3261
+irvine, 3048
+software, 3022
+can, 2520
+students, 2297
+search, 2227
+pdf, 2188
+models, 2167
+machine, 2117
+student, 2078
+project, 2072
+home, 1881
+news, 1859
+faculty, 1829
+using, 1729
+time, 1711
+based, 1700
+conference, 1670
+people, 1622
+program, 1602
+paper, 1599
+school, 1590
+contact, 1574
+system, 1574
+model, 1486
+events, 1483
+ieee, 1476
+new, 1454
+graduate, 1431
+professor, 1418
+california, 1394
+work, 1394
+award, 1391
+engineering, 1386
+algorithms, 1378
+center, 1365
+projects, 1360
+may, 1353
+bren, 1344
+networks, 1313
+
+4. Subdomains found in ics.uci.edu:
+accessibility.ics.uci.edu, 5
+acoi.ics.uci.edu, 75
+archive-beta.ics.uci.edu, 2
+archive.ics.uci.edu, 6
+asterix.ics.uci.edu, 5
+cdb.ics.uci.edu, 14
+cert.ics.uci.edu, 19
+chemdb.ics.uci.edu, 14
+chenli.ics.uci.edu, 8
+cloudberry.ics.uci.edu, 2
+cml.ics.uci.edu, 93
+code.ics.uci.edu, 14
+computableplant.ics.uci.edu, 30
+courselisting.ics.uci.edu, 2
+create.ics.uci.edu, 4
+cs.ics.uci.edu, 9
+deeprxn.ics.uci.edu, 28
+dgillen.ics.uci.edu, 8
+ds4all.ics.uci.edu, 5
+dynamo.ics.uci.edu, 2
+edgelab.ics.uci.edu, 6
+emj.ics.uci.edu, 27
+evoke.ics.uci.edu, 4
+fellowships.ics.uci.edu, 1
+flamingo.ics.uci.edu, 6
+fr.ics.uci.edu, 3
+futurehealth.ics.uci.edu, 70
+grape.ics.uci.edu, 67
+hobbes.ics.uci.edu, 8
+hpi.ics.uci.edu, 5
+i-sensorium.ics.uci.edu, 4
+icde2023.ics.uci.edu, 35
+industryshowcase.ics.uci.edu, 20
+informatics.ics.uci.edu, 13
+intranet.ics.uci.edu, 1
+ipubmed.ics.uci.edu, 1
+isg.ics.uci.edu, 162
+jgarcia.ics.uci.edu, 4
+luci.ics.uci.edu, 4
+mcs.ics.uci.edu, 11
+mds.ics.uci.edu, 9
+mhcid.ics.uci.edu, 17
+mlphysics.ics.uci.edu, 1
+mswe.ics.uci.edu, 7
+mupro.proteomics.ics.uci.edu, 2
+myip.ics.uci.edu, 1
+nalini.ics.uci.edu, 4
+oai.ics.uci.edu, 6
+psearch.ics.uci.edu, 1
+radicle.ics.uci.edu, 3
+riscit.ics.uci.edu, 1
+scale.ics.uci.edu, 6
+scratch.proteomics.ics.uci.edu, 3
+seal.ics.uci.edu, 44
+selectpro.proteomics.ics.uci.edu, 4
+sherlock.ics.uci.edu, 5
+stairs.ics.uci.edu, 3
+stat.ics.uci.edu, 7
+summeracademy.ics.uci.edu, 11
+tad.ics.uci.edu, 1
+tastier.ics.uci.edu, 1
+tutoring.ics.uci.edu, 4
+vision.ics.uci.edu, 126
+wiki.ics.uci.edu, 1
+www-db.ics.uci.edu, 21
+www.ics.uci.edu, 370
+xtune.ics.uci.edu, 3
+
+5. Duplicate detection:
+Exact duplicate pages skipped: 204
+Near duplicate pages skipped: 145
